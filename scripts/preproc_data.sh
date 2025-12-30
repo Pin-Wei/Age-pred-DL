@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 
 top_dir="/home/aclexp/pinwei/Age_pred_DL"
+script_dir="${top_dir}/scripts/preprocess"
 orig_dir="${top_dir}/data/fmriprep"
 subj_list="${top_dir}/data/meta/subj_list.txt"
 
-out_top="${orig_dir}/../processed"
+out_top="${top_dir}/data/processed"
 t1_copied_dir="${out_top}/preproc_MNI_wholebrain_raw"
 t1_masked_dir="${t1_copied_dir/raw/masked}"
 t1_scaled_dir="${t1_copied_dir/raw/scaled}"
 t1_cropped_dir="${t1_copied_dir/raw/cropped}"
 
-bash preprocess/gen_subj_list.sh $subj_list $t1_copied_dir $orig_dir
-bash preprocess/gen_masked_T1.sh $subj_list $t1_masked_dir $orig_dir
-bash preprocess/gen_scaled_T1.sh $subj_list $t1_masked_dir $t1_scaled_dir
-python3 preprocess/gen_cropped_T1_center.py $subj_list $t1_scaled_dir $t1_cropped_dir
+bash $script_dir/gen_subj_list.sh $subj_list $t1_copied_dir $orig_dir
+bash $script_dir/gen_masked_T1.sh $subj_list $t1_masked_dir $orig_dir
+bash $script_dir/gen_scaled_T1.sh $subj_list $t1_masked_dir $t1_scaled_dir
+python3 $script_dir/gen_cropped_T1_center.py $subj_list $t1_scaled_dir $t1_cropped_dir
 
 ## Create a union mask and crop T1w images using the minimum boundary:
 # union_mask="${out_top}/union_mask.nii.gz"
