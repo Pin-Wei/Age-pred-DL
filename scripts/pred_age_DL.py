@@ -86,8 +86,9 @@ class Config:
         self.mdl_path_template = os.path.join(self.output_dir, "model_fold-{}.pt")
         self.trainval_hist_path = os.path.join(self.output_dir, "train-val_history.csv")
         self.trainval_preds_path_template = os.path.join(self.output_dir, "train-val_preds_fold-{}.csv")
-        self.test_preds_path = os.path.join(self.output_dir, "test_predictions.csv")
         self.test_res_path = os.path.join(self.output_dir, "test_results.json")
+        self.test_preds_path = os.path.join(self.output_dir, "test_predictions.csv")
+        self.final_preds_path = os.path.join(self.output_dir, "final_predictions.csv")
 
 class MyData(Dataset):
     def __init__(self, config, logger=None):
@@ -254,6 +255,10 @@ def setup_logger(config, args, logger_name="my_logger"):
     return logger
 
 def build_model(config):
+    '''
+    Build the model.
+    Load the pre-trained model if specified.
+    '''
     model = SFCN(config).to(config.device)
     if config.multi_gpu:
         model = torch.nn.DataParallel(model)
@@ -283,6 +288,22 @@ def build_optimizer(model, config):
         raise NotImplementedError(f"Optimizer '{config.opt_algorithm}' is not implemented.")
 
 def train_or_eval(mode, loader, model, optimizer, criterion, scaler, config):
+    '''
+    Train or evaluate the model.
+
+    Args:
+        - mode (str): "train" or "eval"
+        - loader (torch.utils.data.DataLoader): data loader
+        - model (torch.nn.Module): model
+        - optimizer (torch.optim.Optimizer): optimizer
+        - criterion (torch.nn.Module): loss function
+        - scaler (torch.cuda.amp.GradScaler): scaler for automatic mixed precision
+    Returns:
+        - avg_loss (float): average loss
+        - (dict): performance metrics
+        - y_true (list): true ages
+        - y_pred (list): predicted ages
+    '''
     avg_loss = 0.0
     y_true, y_pred = [], []
     bin_centers = config.bin_centers.to(config.device)
@@ -332,6 +353,129 @@ def train_or_eval(mode, loader, model, optimizer, criterion, scaler, config):
 
     return avg_loss, {"MAE": mae, "RMSE": rmse, "R2": r2}, y_true, y_pred
 
+def run_one_fold(fold_n, trainval_idx, tr_rel, va_rel, dataset, criterion, config, logger, trainval_history):
+    '''
+    Run training and validation loop for one fold.
+    Save the model of the epoch with the best validation performance --> config.mdl_path_template.format(fold_n)
+    Save the predictions of the best model --> config.trainval_preds_path_template.format(fold_n)
+
+    Args:
+        - fold_n (int): the index of the current fold (start from 0)
+        - trainval_idx (list): indices of the training and validation sets
+        - tr_rel (list): relative indices of the training set
+        - va_rel (list): relative indices of the validation set
+        - dataset (torch.utils.data.Dataset): the dataset object
+        - trainval_history (list): storing losses and performance metrics (all epochs)
+    Returns:
+        - trainval_history
+        - trainval_preds (dict): true and predicted ages (best epoch)
+    '''
+    ## Create data loaders:
+    loader_train = DataLoader(
+        Subset(dataset, trainval_idx[tr_rel]), 
+        batch_size=config.batch_size, 
+        shuffle=True, 
+        num_workers=config.num_workers, 
+        pin_memory=(config.device.type == "cuda")
+    )
+    loader_val = DataLoader(
+        Subset(dataset, trainval_idx[va_rel]), 
+        batch_size=config.batch_size, 
+        shuffle=False, 
+        num_workers=config.num_workers, 
+        pin_memory=(config.device.type == "cuda")
+    )
+
+    ## Initialization: 
+    model = build_model(config)
+    optimizer = build_optimizer(model, config)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.lr_step_size, gamma=config.lr_gamma)
+    scaler = GradScaler() 
+    preds = {}
+    best_val = np.inf
+    best_state = None
+    bad_epochs = 0
+
+    ## Training and validation loop:
+    for epoch_n in range(config.num_epochs):
+        log_text = (
+            f"Fold [{fold_n + 1}/{config.k_folds}]" + 
+            f", Epoch [{epoch_n + 1}/{config.num_epochs}]" + 
+            f", LR ({scheduler.get_last_lr()[0]:.6f})"
+        )
+        train_loss, _, y_true_train, y_pred_train = train_or_eval(
+            "train", loader_train, model, optimizer, criterion, scaler, config
+        )
+        val_loss, val_metrics, y_true_val, y_pred_val = train_or_eval(
+            "eval", loader_val, model, None, criterion, None, config
+        )
+        trainval_history.append({
+            "fold": fold_n + 1,
+            "epoch": epoch_n + 1,
+            "train_loss": train_loss, 
+            "val_loss": val_loss, 
+            **{f"val_{k}": v for k, v in val_metrics.items()}
+        })
+        preds[epoch_n + 1] = {
+            "TT": y_true_train, 
+            "TP": y_pred_train, 
+            "VT": y_true_val, 
+            "VP": y_pred_val 
+        }
+        log_text += (
+            f", Train_Loss: {train_loss:.4f}" + 
+            f", Val_Loss: {val_loss:.4f}" + 
+            f", Val_{config.metric}: {val_metrics[config.metric]:.4f}"
+        )
+        logger.info(log_text)
+
+        scheduler.step() # update learning rate
+
+        ## Track which epoch has the best validation performance:
+        if val_metrics[config.metric] < best_val:
+            best_val = val_metrics[config.metric]
+            best_epoch = epoch_n + 1
+            best_state = copy.deepcopy(model.state_dict())
+            bad_epochs = 0
+        else:
+            bad_epochs += 1
+            if bad_epochs >= config.patience: # early stopping
+                break
+
+    ## Save the best model from all epochs:
+    logger.info(f"Best model for fold {fold_n + 1}: Epoch {best_epoch} (Val_{config.metric}: {best_val:.4f})")
+    torch.save({
+        "fold": fold_n + 1, 
+        "best_epoch": best_epoch,
+        "model_state_dict": best_state
+    }, config.mdl_path_template.format(fold_n + 1))
+
+    ## Save the best train-val predictions:
+    trainval_preds = pd.concat([
+        pd.DataFrame({
+            "Set": "Train",
+            "SID": [ dataset.samples[idx][-1] for idx in trainval_idx[tr_rel] ], 
+            "True_Age": preds[best_epoch]["TT"], 
+            "Pred_Age": preds[best_epoch]["TP"]
+        }), 
+        pd.DataFrame({
+            "Set": "Val",
+            "SID": [ dataset.samples[idx][-1] for idx in trainval_idx[va_rel] ],
+            "True_Age": preds[best_epoch]["VT"], 
+            "Pred_Age": preds[best_epoch]["VP"] 
+        })
+    ])
+    trainval_preds.to_csv(config.trainval_preds_path_template.format(fold_n + 1), index=False)
+
+    return trainval_history, trainval_preds
+
+def model_age_related_bias(y_true, y_pred):
+    a, b = np.polyfit(y_true, y_pred, deg=1) # y_pred = a * y_true + b
+    return a, b 
+
+def apply_bias_correction(y_pred, slope, intercept):
+    return (y_pred - intercept) / slope
+
 def main():
     ## Setups:
     args = define_arguments()
@@ -351,7 +495,7 @@ def main():
     data_idxs, data_grps = np.array([ [idx, grp] for idx, (_, _, _, grp, _) in enumerate(dataset.samples) ]).T
     config.bin_centers = dataset.bin_centers
 
-    ## Add dataset info to config and save:
+    ## Add information about dataset to config and save:
     config.img_size = dataset[0][0].squeeze().shape # remove channel dimension
     config.num_samples_total = len(dataset)
     config.stratify_groups = list(np.unique(data_grps))
@@ -370,105 +514,21 @@ def main():
         pin_memory=(config.device.type == "cuda")
     )
 
+    ## Define loss function (static):
+    criterion = nn.KLDivLoss(reduction="batchmean").to(config.device) 
+
     ## K-fold cross-validation:
     logger.info("Starting model training and evaluation ...")
     skf = StratifiedKFold(
         n_splits=config.k_folds, shuffle=True, random_state=config.np_seed
     )
     trainval_history = []
+    trainval_preds_all = {}
 
     for fold_n, (tr_rel, va_rel) in enumerate(skf.split(trainval_idx, data_grps[trainval_idx])):
-
-        ## Create data loaders:
-        loader_train = DataLoader(
-            Subset(dataset, trainval_idx[tr_rel]), 
-            batch_size=config.batch_size, 
-            shuffle=True, 
-            num_workers=config.num_workers, 
-            pin_memory=(config.device.type == "cuda")
+        trainval_history, trainval_preds_all[fold_n + 1] = run_one_fold(
+            fold_n, trainval_idx, tr_rel, va_rel, dataset, criterion, config, logger, trainval_history
         )
-        loader_val = DataLoader(
-            Subset(dataset, trainval_idx[va_rel]), 
-            batch_size=config.batch_size, 
-            shuffle=False, 
-            num_workers=config.num_workers, 
-            pin_memory=(config.device.type == "cuda")
-        )
-
-        ## Initialization:
-        model = build_model(config)
-        optimizer = build_optimizer(model, config)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.lr_step_size, gamma=config.lr_gamma)
-        criterion = nn.KLDivLoss(reduction="batchmean").to(config.device)
-        scaler = GradScaler()
-
-        best_val = np.inf
-        best_state = None
-        bad_epochs = 0
-
-        ## Training and validation loop:
-        for epoch_n in range(config.num_epochs):
-            log_text = (
-                f"Fold [{fold_n + 1}/{config.k_folds}]" + 
-                f", Epoch [{epoch_n + 1}/{config.num_epochs}]" + 
-                f", LR ({scheduler.get_last_lr()[0]:.6f})"
-            )
-            train_loss, _, y_true_train, y_pred_train = train_or_eval(
-                "train", loader_train, model, optimizer, criterion, scaler, config
-            )
-            val_loss, val_metrics, y_true_val, y_pred_val = train_or_eval(
-                "eval", loader_val, model, None, criterion, None, config
-            )
-            trainval_history.append({
-                "fold": fold_n + 1,
-                "epoch": epoch_n + 1,
-                "train_loss": train_loss, 
-                "val_loss": val_loss, 
-                **{f"val_{k}": v for k, v in val_metrics.items()}
-            })
-            log_text += (
-                f", Train_Loss: {train_loss:.4f}" + 
-                f", Val_Loss: {val_loss:.4f}" + 
-                f", Val_{config.metric}: {val_metrics[config.metric]:.4f}"
-            )
-            logger.info(log_text)
-
-            scheduler.step() # update learning rate
-
-            ## Save train-val predictions of the current fold:
-            pd.concat([
-                pd.DataFrame({
-                    "Set": "Train",
-                    "SID": [dataset.samples[trainval_idx[tr_rel][i]][-1] for i in range(len(y_true_train))], 
-                    "True_Age": y_true_train, 
-                    "Pred_Age": y_pred_train
-                }), 
-                pd.DataFrame({
-                    "Set": "Val",
-                    "SID": [dataset.samples[trainval_idx[va_rel][i]][-1] for i in range(len(y_true_val))], 
-                    "True_Age": y_true_val, 
-                    "Pred_Age": y_pred_val
-                })
-            ]).to_csv(config.trainval_preds_path_template.format(fold_n + 1), index=False)
-
-            ## Track the best model:
-            if val_metrics[config.metric] < best_val:
-                best_val = val_metrics[config.metric]
-                best_epoch = epoch_n + 1
-                best_state = copy.deepcopy(model.state_dict())
-                bad_epochs = 0
-            else:
-                bad_epochs += 1
-                if bad_epochs >= config.patience: # early stopping
-                    break
-
-        ## Save the best model of the current fold:
-        logger.info(f"Best model for fold {fold_n + 1}: Epoch {best_epoch} (Val_{config.metric}: {best_val:.4f})")
-        torch.save({
-            "fold": fold_n + 1, 
-            "best_epoch": best_epoch,
-            "model_state_dict": best_state
-        }, config.mdl_path_template.format(fold_n + 1))
 
     ## Save training and validation history:
     trainval_hist_df = pd.DataFrame(trainval_history)
@@ -487,14 +547,8 @@ def main():
         "eval", loader_test, best_model, None, criterion, None, config
     )
     logger.info(f"Test_Loss: {test_loss:.4f}, Test_{config.metric}: {test_metrics[config.metric]:.4f}")
-    
-    ## Save test predictions and results:
-    pd.DataFrame({
-        "SID": [dataset.samples[idx][-1] for idx in test_idx],
-        "True_Age": y_true_test,
-        "Pred_Age": y_pred_test
-    }).to_csv(config.test_preds_path, index=False)
 
+    ## Save the results:
     results = convert_np_types({
         "best_fold": best_fold, 
         "test_loss": test_loss,
@@ -503,12 +557,32 @@ def main():
     with open(config.test_res_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False)
 
+    ## Save the test set predictions:
+    test_preds = pd.DataFrame({
+        "SID": [ dataset.samples[idx][-1] for idx in test_idx ],
+        "True_Age": y_true_test,
+        "Pred_Age": y_pred_test
+    })
+    test_preds.to_csv(config.test_preds_path, index=False)
+
+    ## Compute PADs:
+    test_preds.insert(0, "Set", "Test")
+    final_preds = pd.concat([test_preds, trainval_preds_all[best_fold]])
+    final_preds["PAD"] = final_preds["Pred_Age"] - final_preds["True_Age"]
+
+    ## Perform age-related bias correction:
+    selected_preds = final_preds.query("Set == 'Val'")
+    slope, intercept = model_age_related_bias(selected_preds["True_Age"], selected_preds["Pred_Age"])
+    final_preds["Corrected_Pred_Age"] = apply_bias_correction(final_preds["Pred_Age"], slope, intercept)
+    final_preds["PAD_ac"] = final_preds["Corrected_Pred_Age"] - final_preds["True_Age"]
+    final_preds.to_csv(config.final_preds_path, index=False)
+
 if __name__ == "__main__":
     print("Starting ...")
     gc.collect()
     torch.cuda.empty_cache()
     main()
-    print("Finished, have a nice day :-)")
+    print("Finished, have a nice day :-)\n")
 
 ## Foot notes: =====================================================================
 
