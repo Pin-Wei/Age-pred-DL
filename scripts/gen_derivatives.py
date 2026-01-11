@@ -13,7 +13,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 sys.path.append(os.path.join(os.getcwd(), "..", "scripts"))
-from utils import basic_Q_features, ST_features
+from utils import basic_Q_features, ST_features, ST_feat_raw
 
 class Config:
     def __init__(self, args=None):
@@ -138,7 +138,7 @@ def plot_trainval_history(DF, col, config, fold_start=1, fold_end=None,
             plt.plot(epochs, losses, label=f"Fold {fold_n}")
         plt.gca().spines[["right", "top"]].set_visible(False)
         plt.grid(False)
-        plt.title(title)
+        # plt.title(title)
         plt.xlabel(x_label)
         plt.ylabel(y_label)
         plt.legend()
@@ -157,6 +157,7 @@ def main():
 
     basic_q_features = basic_Q_features()
     st_features = ST_features()
+    st_feat_raw = ST_feat_raw()
 
     ## Load and merge dataframes:
     final_preds = pd.read_csv(config.final_preds_path)
@@ -204,15 +205,14 @@ def main():
     ## Plot correlations between PAD values and ST/Q features:
     for pad_type in ["PAD", "PAD_ac"]:
         for feat_list, feat_label, fig_size in zip(
-            [st_features, basic_q_features], 
-            ["ST features", "Questionaire features"], 
-            [(10, 6), (10, 12)]
+            [st_feat_raw, st_features, basic_q_features], 
+            ["Raw ST features", "ST features", "Questionnaire features"], 
+            [(10, 15), (10, 6), (10, 12)]
         ):
             plot_cormat_by_set(
                 DF=merged_df, 
                 targ_col=pad_type, 
                 y_cols=feat_list, 
-                y_label=feat_label, 
                 out_path=config.corr_with_feat_path_template.format(pad_type, feat_label),
                 fig_size=fig_size, 
                 overwrite=args.overwrite

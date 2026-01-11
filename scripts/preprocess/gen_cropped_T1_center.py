@@ -20,22 +20,40 @@ def main():
     out_dir = sys.argv[3]
     os.makedirs(out_dir, exist_ok=True)
 
-    input_shape = (193, 229, 193)
+    img_space = sys.argv[4]
+    if img_space == "MNI":
+        input_shape = (193, 229, 193)
+    elif img_space == "CN":
+        input_shape = (182, 218, 182)
+    else:
+        raise ValueError(f"Unknown image space: {img_space}")
+        
     output_shape = (160, 192, 160)
     x, y, z = calc_crop_indices(input_shape, output_shape)
+    img_suffix = sys.argv[5]
 
     for sid in subj_list:
-        img_path = os.path.join(img_dir, f"{sid}_ses-01_space-MNI152NLin2009cAsym_desc-brain_T1w.nii.gz")
+        img_path = os.path.join(img_dir, f"{sid}{img_suffix}")
         img_name = os.path.basename(img_path)
-        img = nib.load(img_path)
-        
-        if img.shape != input_shape:
-            print(f"[WARN] image shape for {sid} is {img.shape}, expected {input_shape}. Skipping.")
-            continue
+        out_path = os.path.join(out_dir, img_name)
 
-        print(f"[INFO] generating cropped image for {sid}")
-        cropped_img = img.slicer[x[0]:x[1], y[0]:y[1], z[0]:z[1]]
-        nib.save(cropped_img, os.path.join(out_dir, img_name))
+        if not os.path.exists(out_path):
+            if not os.path.exists(img_path):
+                # print(f"[WARN] image {img_path} does not exist. Skipping.")
+                continue
+            
+            img = nib.load(img_path)
+            
+            if img.shape != input_shape:
+                print(f"[WARN] image shape for {sid} is {img.shape}, expected {input_shape}. Skipping.")
+                continue
+
+            print(f"[INFO] generating cropped image for {sid}")
+            cropped_img = img.slicer[x[0]:x[1], y[0]:y[1], z[0]:z[1]]
+            nib.save(cropped_img, os.path.join(out_dir, img_name))
+            
+        else:
+            print(f"[SKIP] cropped image for {sid} already exists.")
 
 if __name__ == "__main__": 
     main()

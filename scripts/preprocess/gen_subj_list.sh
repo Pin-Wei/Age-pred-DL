@@ -6,9 +6,11 @@ if [[ -f $out_file ]]; then rm $out_file; fi
 t1_copy_dir=$2
 if [[ ! -d $t1_copy_dir ]]; then mkdir -p $t1_copy_dir; fi
 
-for subj_dir in $3/sub-*/; do
+t1_img_suffix=$3
+
+for subj_dir in $4/sub-*/; do
 	sid=$(basename "${subj_dir}")
-	t1_file="${subj_dir}/ses-01/anat/${sid}_ses-01_space-MNI152NLin2009cAsym_desc-preproc_T1w.nii.gz"
+	t1_file="${subj_dir}/ses-01/anat/${sid}${t1_img_suffix}"
 	
 	if [[ -f $t1_file ]]; then
 		echo $sid >> $out_file

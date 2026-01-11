@@ -51,7 +51,7 @@ class Config:
         self.add_dropout = True
 
         ## Hyperparameters for training
-        self.pre_trained = True
+        self.pre_trained = not args.train_from_scratch
         self.test_ratio = 0.15
         self.k_folds = 7
         self.num_epochs = 100
@@ -67,12 +67,21 @@ class Config:
         self.patience = np.inf # early stopping patience
         self.metric = ["MAE", "RMSE", "R2"][0] # metric for selecting the best model
         
+        ## Data
+        self.img_space = ["MNI", "CN"][args.img_space]
+
     def setup_paths(self, args):
+        ## Input 
         self.subj_list_path = os.path.join("..", "data", "meta", "subj_list.txt")
         self.subj_infos_path = os.path.join("..", "data", "meta", "subj_infos.csv")
-        self.img_path_template = os.path.join("..", "data", "processed", "preproc_MNI_wholebrain_cropped", 
-                                              "{}_ses-01_space-MNI152NLin2009cAsym_desc-brain_T1w.nii.gz")
         self.pretrained_model_path = os.path.join("..", "models", "pretrained", "run_20190719_00_epoch_best_mae.p")
+        if self.img_space == "MNI":
+            self.img_path_template = os.path.join("..", "data", "processed", "preproc_MNI_wholebrain_cropped", 
+                                                  "{}_ses-01_space-MNI152NLin2009cAsym_desc-brain_T1w.nii.gz")
+        elif self.img_space == "CN":
+            self.img_path_template = os.path.join("..", "data", "processed", "preproc_CN_wholebrain_cropped", 
+                                                  "{}_ses-01_space-CN200_desc-brain_T1w.nii.gz")
+        ## Output 
         if getattr(args, "temp", False):
             self.output_dir = os.path.join("..", "models", "temp")
         else:
@@ -202,6 +211,10 @@ def define_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--notes", type=str, default="", 
                         help="Additional notes for the current run.")
+    parser.add_argument("-tfs", "--train_from_scratch", action="store_true", 
+                        help="Train a model from scratch.")
+    parser.add_argument("-isp", "--img_space", type=int, choices=[0, 1], default=0, 
+                        help="Standardized space of the image data. (0: MNI; 1: CN)")
     parser.add_argument("-o", "--overwrite", action="store_true", 
                         help="Overwrite output files if they already exist.")
     parser.add_argument("-t", "--temp", action="store_true", 

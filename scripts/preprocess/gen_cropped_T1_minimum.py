@@ -28,17 +28,29 @@ def main():
     out_dir = sys.argv[4]
     os.makedirs(out_dir, exist_ok=True)
 
+    img_suffix = sys.argv[5]
+
     for sid in subj_list:
-        img_path = os.path.join(img_dir, f"{sid}_ses-01_space-MNI152NLin2009cAsym_desc-brain_T1w.nii.gz")
+        img_path = os.path.join(img_dir, f"{sid}{img_suffix}")
         img_name = os.path.basename(img_path)
-        img = nib.load(img_path)
+        out_path = os.path.join(out_dir, img_name)
 
-        if img.affine.shape != mask_img.affine.shape or not np.allclose(img.affine, mask_img.affine):
-            raise ValueError(f"Affine mismatch for {sid}")
+        if not os.path.exists(out_path):
+            if not os.path.exists(img_path):
+                print(f"[WARN] image {img_path} does not exist. Skipping.")
+                continue
+            
+            img = nib.load(img_path)
 
-        print(f"[INFO] generating cropped image for {sid}")
-        cropped_img = img.slicer[x[0]:x[1], y[0]:y[1], z[0]:z[1]]
-        nib.save(cropped_img, os.path.join(out_dir, img_name))
+            if img.affine.shape != mask_img.affine.shape or not np.allclose(img.affine, mask_img.affine):
+                raise ValueError(f"Affine mismatch for {sid}")
+
+            print(f"[INFO] generating cropped image for {sid}")
+            cropped_img = img.slicer[x[0]:x[1], y[0]:y[1], z[0]:z[1]]
+            nib.save(cropped_img, os.path.join(out_dir, img_name))
+
+        else:
+            print(f"[SKIP] cropped image for {sid} already exists.")
 
 if __name__ == "__main__": 
     main()

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 def basic_Q_features(): # from questionnaires
-    return [
+    return [ # 30 features
         "BASIC_Q_EHI_Sum", 
         "BASIC_Q_SF36_PhysicalFunct", 
         "BASIC_Q_SF36_PhysicalLimit", 
@@ -35,7 +35,7 @@ def basic_Q_features(): # from questionnaires
     ]
 
 def ST_features(): # from standardized tests
-    return [
+    return [ # 16 features
         "LANGUAGE_ST_SCALED_SIMILARITY", 
         "LANGUAGE_ST_SCALED_VOCABULARY", 
         "LANGUAGE_ST_SCALED_INFORMATION", 
@@ -52,4 +52,46 @@ def ST_features(): # from standardized tests
         "MOTOR_ST_SCALED_FineMotor", 
         "MOTOR_ST_SCALED_Balance", 
         "MOTOR_ST_SCALED_ProcessingSpeed"    
+    ]
+
+def ST_feat_raw(): 
+    return [ # 38 features
+        "LANGUAGE_ST_RAW_SIMILARITY",
+        "LANGUAGE_ST_RAW_VOCABULARY",
+        "LANGUAGE_ST_RAW_INFORMATION",
+        "LANGUAGE_ST_RAW_SUM",
+        "MEMORY_ST_RAW_AudImm",
+        "MEMORY_ST_RAW_VisImm",
+        "MEMORY_ST_RAW_ImmMem",
+        "MEMORY_ST_RAW_WorMem",
+        "MEMORY_ST_RAW_LogMemI",
+        "MEMORY_ST_RAW_FacI",
+        "MEMORY_ST_RAW_VerPairI",
+        "MEMORY_ST_RAW_FamPicI",
+        "MEMORY_ST_RAW_LetNumSeq",
+        "MEMORY_ST_RAW_SpaForward",
+        "MEMORY_ST_RAW_SpaBackward",
+        "MEMORY_ST_RAW_SpaTotal",
+        "MOTOR_ST_RAW_BPrestHigh",
+        "MOTOR_ST_RAW_BPrestLow",
+        "MOTOR_ST_RAW_HRrest",
+        "MOTOR_ST_RAW_HEIGHT",
+        "MOTOR_ST_RAW_WEIGHT",
+        "MOTOR_ST_RAW_BMI",
+        "MOTOR_ST_RAW_WHR",
+        "MOTOR_ST_RAW_AerobicRating",
+        "MOTOR_ST_RAW_FunctionalReaching",
+        "MOTOR_ST_RAW_WorseLegEyeOpen",
+        "MOTOR_ST_RAW_BestLegEyeOpen",
+        "MOTOR_ST_RAW_WorseLegEyeClose",
+        "MOTOR_ST_RAW_BestLegEyeClose",
+        "MOTOR_ST_RAW_PegboardDominant",
+        "MOTOR_ST_RAW_PegboardNondominant",
+        "MOTOR_ST_RAW_PegboardBoth",
+        "MOTOR_ST_RAW_PegboardSum",
+        "MOTOR_ST_RAW_PegboardAssemble",
+        "MOTOR_ST_RAW_SymbolSearch",
+        "MOTOR_ST_RAW_SymbolCoding",
+        "MOTOR_ST_RAW_GripMvcL",
+        "MOTOR_ST_RAW_GripMvcR"
     ]

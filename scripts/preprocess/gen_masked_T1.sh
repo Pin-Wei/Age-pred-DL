@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-out_dir=$2
+out_dir=$1
 if [[ ! -d $out_dir ]]; then mkdir -p $out_dir; fi
 
-prep_dir=$3
+prep_dir=$2
+anat_suffix=$3
+mask_suffix=$4
+out_suffix=$5
 
-for sid in `cat $1`; do
-	anat_file="${prep_dir}/${sid}/ses-01/anat/${sid}_ses-01_space-MNI152NLin2009cAsym_desc-preproc_T1w.nii.gz"
-    mask_file="${prep_dir}/${sid}/ses-01/anat/${sid}_ses-01_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz"
-    out_file="${out_dir}/${sid}_ses-01_space-MNI152NLin2009cAsym_desc-brain_T1w.nii.gz"
+for sid in `cat $6`; do
+	anat_file="${prep_dir}/${sid}/ses-01/anat/${sid}${anat_suffix}"
+    mask_file="${prep_dir}/${sid}/ses-01/anat/${sid}${mask_suffix}"
+    out_file="${out_dir}/${sid}${out_suffix}"
 
     if [[ ! -f $out_file ]]; then
 
